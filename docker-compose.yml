@@ -1,0 +1,51 @@
+version: "3.8"
+
+services:
+  # ---------------------------------------------------------------------------
+  # Local PostgreSQL with pgvector (AlloyDB local equivalent)
+  # ---------------------------------------------------------------------------
+  vector-db:
+    image: pgvector/pgvector:pg16
+    container_name: pitchbuilder-vector-db
+    environment:
+      POSTGRES_DB: pitchbuilder
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgvector_data:/var/lib/postgresql/data
+      - ./infra/init-vector-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d pitchbuilder"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # FastAPI Backend Service
+  # ---------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: pitchbuilder-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=development
+      - PORT=8000
+      - HOST=0.0.0.0
+      - VECTOR_DB_TYPE=local
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgrespassword@vector-db:5432/pitchbuilder
+      - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+      - MOCK_GCP_SERVICES=false
+      - GEMINI_MODEL_NAME=gemini-2.5-flash
+    depends_on:
+      vector-db:
+        condition: service_healthy
+    volumes:
+      - ./backend/app:/app/app
+
+volumes:
+  pgvector_data:
